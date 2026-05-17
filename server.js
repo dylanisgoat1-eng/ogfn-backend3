@@ -48,7 +48,7 @@ app.get("/", (req, res) => {
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || "1505369355331047455";
 const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "CYlNATa1Obtc0_j5J1yiSuduzs9iLVbb";
 
-const REDIRECT_URI = process.env.REDIRECT_URI || "http://localhost:3000/callback";
+const REDIRECT_URI = process.env.REDIRECT_URI || "https://ogfn-backend3-1.onrender.com/callback";
 const JWT_SECRET = process.env.JWT_SECRET || "qwertyuiopasdfghjklzxcvbnm1234567890";
 
 const DB_FILE = "./accounts.json";
