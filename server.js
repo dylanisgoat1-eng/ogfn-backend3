@@ -173,7 +173,7 @@ app.get("/callback", async (req, res) => {
         window.location.href = "ogfn://login?token=" + token;
 
         setTimeout(() => {
-          window.location.href = "http://localhost:3000/fallback?token=" + token;
+          window.location.href = "/fallback?token=" + encodeURIComponent(token);
         }, 2000);
       </script>
     `);
