@@ -8,11 +8,31 @@ const fs = require("fs");
 // FIREBASE ADMIN
 // =====================
 const admin = require("firebase-admin");
-const serviceAccount = require("./serviceAccountKey.json");
+let firebaseEnabled = false;
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+try {
+  let serviceAccount;
+
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    if (serviceAccount.private_key) {
+      serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, "\n");
+    }
+  } else if (fs.existsSync("./serviceAccountKey.json")) {
+    serviceAccount = require("./serviceAccountKey.json");
+  }
+
+  if (serviceAccount) {
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount),
+    });
+    firebaseEnabled = true;
+  } else {
+    console.log("Firebase disabled: FIREBASE_SERVICE_ACCOUNT is not set.");
+  }
+} catch (err) {
+  console.log("Firebase init error:", err.message);
+}
 
 const app = express();
 app.use(cors());
@@ -21,11 +41,11 @@ app.use(express.json());
 // =====================
 // CONFIG
 // =====================
-const CLIENT_ID = "1505369355331047455";
-const CLIENT_SECRET = "CYlNATa1Obtc0_j5J1yiSuduzs9iLVbb";
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID || "1505369355331047455";
+const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "CYlNATa1Obtc0_j5J1yiSuduzs9iLVbb";
 
-const REDIRECT_URI = "http://localhost:3000/callback";
-const JWT_SECRET = "qwertyuiopasdfghjklzxcvbnm1234567890";
+const REDIRECT_URI = process.env.REDIRECT_URI || "http://localhost:3000/callback";
+const JWT_SECRET = process.env.JWT_SECRET || "qwertyuiopasdfghjklzxcvbnm1234567890";
 
 const DB_FILE = "./accounts.json";
 
@@ -127,6 +147,7 @@ app.get("/callback", async (req, res) => {
 
     // save Firebase (safe try)
     try {
+      if (!firebaseEnabled) throw new Error("Firebase is not configured");
       await admin.firestore().collection("accounts").doc(user.id).set({
         id: user.id,
         username: user.username,
