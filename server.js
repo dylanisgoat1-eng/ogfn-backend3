@@ -70,6 +70,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 
 const DB_FILE = "./accounts.json";
 const ACCOUNTS_COLLECTION = "accounts";
+const LEADERBOARD_COLLECTION = "leaderboard";
 
 const missingEnv = [];
 if (!CLIENT_ID) missingEnv.push("DISCORD_CLIENT_ID");
@@ -110,10 +111,64 @@ function accountPayload(user, launcherToken) {
   return {
     id: user.id,
     username: user.username,
+    displayName: user.global_name || user.username,
     avatar: user.avatar || null,
     token: launcherToken,
     lastLogin: Date.now(),
   };
+}
+
+function verifyLauncherToken(req) {
+  const header = req.headers.authorization || "";
+  const bearerToken = header.startsWith("Bearer ") ? header.slice(7) : null;
+  const token = bearerToken || req.query.token;
+
+  if (!token) return null;
+  return jwt.verify(token, JWT_SECRET);
+}
+
+function publicAccount(account) {
+  return {
+    id: account.id,
+    username: account.username,
+    displayName: account.displayName || account.username,
+    avatar: account.avatar || null,
+    lastLogin: account.lastLogin || null,
+  };
+}
+
+function defaultLeaderboardEntry(account) {
+  return {
+    id: account.id,
+    name: account.displayName || account.username,
+    username: account.username,
+    tag: "#" + String(account.id).slice(-4),
+    wins: 0,
+    kd: 0,
+    matches: 0,
+    color: "#7b2ff7",
+    updatedAt: Date.now(),
+  };
+}
+
+async function syncLeaderboardProfile(account) {
+  if (!firebaseEnabled || !firestore) return;
+
+  const ref = firestore.collection(LEADERBOARD_COLLECTION).doc(account.id);
+  const doc = await ref.get();
+
+  if (doc.exists) {
+    await ref.set({
+      id: account.id,
+      name: account.displayName || account.username,
+      username: account.username,
+      tag: "#" + String(account.id).slice(-4),
+      updatedAt: Date.now(),
+    }, { merge: true });
+    return;
+  }
+
+  await ref.set(defaultLeaderboardEntry(account));
 }
 
 async function saveAccount(account) {
@@ -122,6 +177,7 @@ async function saveAccount(account) {
       .collection(ACCOUNTS_COLLECTION)
       .doc(account.id)
       .set(account, { merge: true });
+    await syncLeaderboardProfile(account);
     return;
   }
 
@@ -143,6 +199,48 @@ async function getAccounts() {
   }
 
   return loadDB();
+}
+
+async function getAccountById(id) {
+  if (firebaseEnabled && firestore) {
+    const doc = await firestore.collection(ACCOUNTS_COLLECTION).doc(id).get();
+    return doc.exists ? doc.data() : null;
+  }
+
+  return loadDB()[id] || null;
+}
+
+async function getLeaderboard() {
+  if (firebaseEnabled && firestore) {
+    const snapshot = await firestore
+      .collection(LEADERBOARD_COLLECTION)
+      .orderBy("wins", "desc")
+      .limit(100)
+      .get();
+
+    return snapshot.docs.map((doc) => doc.data());
+  }
+
+  return Object.values(loadDB()).map(defaultLeaderboardEntry);
+}
+
+async function updateLeaderboardForUser(userId, stats) {
+  const account = await getAccountById(userId);
+  if (!account) return null;
+
+  const entry = {
+    ...defaultLeaderboardEntry(account),
+    wins: Math.max(0, Number(stats.wins) || 0),
+    kd: Math.max(0, Number(stats.kd) || 0),
+    matches: Math.max(0, Number(stats.matches) || 0),
+    updatedAt: Date.now(),
+  };
+
+  if (firebaseEnabled && firestore) {
+    await firestore.collection(LEADERBOARD_COLLECTION).doc(userId).set(entry, { merge: true });
+  }
+
+  return entry;
 }
 
 // =====================
@@ -216,6 +314,7 @@ app.get("/callback", async (req, res) => {
       {
         id: user.id,
         username: user.username,
+        displayName: user.global_name || user.username,
         avatar: user.avatar,
       },
       JWT_SECRET,
@@ -272,6 +371,49 @@ app.get("/accounts", async (req, res) => {
   } catch (err) {
     console.log("Accounts load error:", err.message);
     res.status(500).json({ error: "Failed to load accounts" });
+  }
+});
+
+// =====================
+// PROFILE ROUTE
+// =====================
+app.get("/me", async (req, res) => {
+  try {
+    const user = verifyLauncherToken(req);
+    if (!user) return res.status(401).json({ error: "Missing token" });
+
+    const account = await getAccountById(user.id);
+    res.json({
+      user: publicAccount(account || user),
+    });
+  } catch {
+    res.status(401).json({ error: "Invalid token" });
+  }
+});
+
+// =====================
+// LEADERBOARD ROUTES
+// =====================
+app.get("/leaderboard", async (req, res) => {
+  try {
+    res.json({ players: await getLeaderboard() });
+  } catch (err) {
+    console.log("Leaderboard load error:", err.message);
+    res.status(500).json({ error: "Failed to load leaderboard" });
+  }
+});
+
+app.post("/leaderboard/me", async (req, res) => {
+  try {
+    const user = verifyLauncherToken(req);
+    if (!user) return res.status(401).json({ error: "Missing token" });
+
+    const entry = await updateLeaderboardForUser(user.id, req.body || {});
+    if (!entry) return res.status(404).json({ error: "Account not found" });
+
+    res.json({ player: entry });
+  } catch {
+    res.status(401).json({ error: "Invalid token" });
   }
 });
 
