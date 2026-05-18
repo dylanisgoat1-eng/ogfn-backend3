@@ -53,6 +53,9 @@ app.get("/health", (req, res) => {
     discordClientIdLast4: CLIENT_ID ? CLIENT_ID.slice(-4) : null,
     discordClientSecretSet: Boolean(CLIENT_SECRET),
     jwtSecretSet: Boolean(JWT_SECRET),
+    authEnvKeys: Object.keys(process.env).filter((key) =>
+      /^(DISCORD_|CLIENT_|JWT_)/.test(key)
+    ),
     redirectUri: REDIRECT_URI || `${req.protocol}://${req.get("host")}/callback`,
   });
 });
@@ -60,16 +63,18 @@ app.get("/health", (req, res) => {
 // =====================
 // CONFIG
 // =====================
-const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
-const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID || process.env.CLIENT_ID;
+const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
 const JWT_SECRET = process.env.JWT_SECRET;
 
 const DB_FILE = "./accounts.json";
 const ACCOUNTS_COLLECTION = "accounts";
 
-const REQUIRED_ENV = ["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "JWT_SECRET"];
-const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
+const missingEnv = [];
+if (!CLIENT_ID) missingEnv.push("DISCORD_CLIENT_ID");
+if (!CLIENT_SECRET) missingEnv.push("DISCORD_CLIENT_SECRET");
+if (!JWT_SECRET) missingEnv.push("JWT_SECRET");
 
 if (missingEnv.length > 0) {
   console.error("Missing required environment variables: " + missingEnv.join(", "));
