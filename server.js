@@ -3,6 +3,7 @@ const axios = require("axios");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const fs = require("fs");
+const { MongoClient } = require("mongodb");
 
 // =====================
 // FIREBASE ADMIN
@@ -52,6 +53,24 @@ const REDIRECT_URI = process.env.REDIRECT_URI || "https://ogfn-backend3-1.onrend
 const JWT_SECRET = process.env.JWT_SECRET || "qwertyuiopasdfghjklzxcvbnm1234567890";
 
 const DB_FILE = "./accounts.json";
+const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_DB = process.env.MONGODB_DB || "ogfn_launcher";
+let mongoDb = null;
+
+if (MONGODB_URI) {
+  const mongoClient = new MongoClient(MONGODB_URI);
+  mongoClient
+    .connect()
+    .then(() => {
+      mongoDb = mongoClient.db(MONGODB_DB);
+      console.log("MongoDB connected: " + MONGODB_DB);
+    })
+    .catch((err) => {
+      console.log("MongoDB error:", err.message);
+    });
+} else {
+  console.log("MongoDB disabled: MONGODB_URI is not set.");
+}
 
 // =====================
 // DB FUNCTIONS
@@ -72,6 +91,33 @@ function saveDB(db) {
   } catch (err) {
     console.log("DB save error:", err.message);
   }
+}
+
+async function saveAccount(account) {
+  const db = loadDB();
+  db[account.id] = account;
+  saveDB(db);
+
+  if (mongoDb) {
+    await mongoDb.collection("accounts").updateOne(
+      { id: account.id },
+      { $set: account },
+      { upsert: true }
+    );
+  }
+}
+
+async function getAccounts() {
+  if (mongoDb) {
+    const accounts = await mongoDb.collection("accounts").find({}).toArray();
+    return accounts.reduce((result, account) => {
+      const { _id, ...publicAccount } = account;
+      result[publicAccount.id] = publicAccount;
+      return result;
+    }, {});
+  }
+
+  return loadDB();
 }
 
 // =====================
@@ -136,10 +182,7 @@ app.get("/callback", async (req, res) => {
       { expiresIn: "30d" }
     );
 
-    // save local DB
-    const db = loadDB();
-
-    db[user.id] = {
+    const account = {
       id: user.id,
       username: user.username,
       avatar: user.avatar,
@@ -147,7 +190,7 @@ app.get("/callback", async (req, res) => {
       lastLogin: Date.now(),
     };
 
-    saveDB(db);
+    await saveAccount(account);
 
     // save Firebase (safe try)
     try {
@@ -199,9 +242,13 @@ app.get("/verify", (req, res) => {
 // =====================
 // ACCOUNTS ROUTE
 // =====================
-app.get("/accounts", (req, res) => {
-  const db = loadDB();
-  res.json(db);
+app.get("/accounts", async (req, res) => {
+  try {
+    res.json(await getAccounts());
+  } catch (err) {
+    console.log("Accounts load error:", err.message);
+    res.status(500).json({ error: "Failed to load accounts" });
+  }
 });
 
 // =====================
