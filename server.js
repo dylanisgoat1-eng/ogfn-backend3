@@ -37,6 +37,7 @@ try {
 }
 
 const app = express();
+app.set("trust proxy", true);
 app.use(cors());
 app.use(express.json());
 
@@ -61,7 +62,7 @@ app.get("/health", (req, res) => {
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || "1505369355331047455";
 const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "CYlNATa1Obtc0_j5J1yiSuduzs9iLVbb";
 
-const REDIRECT_URI = process.env.REDIRECT_URI || "http://localhost:3000/callback";
+const REDIRECT_URI = process.env.REDIRECT_URI;
 const JWT_SECRET = process.env.JWT_SECRET || "qwertyuiopasdfghjklzxcvbnm1234567890";
 
 const DB_FILE = "./accounts.json";
@@ -73,6 +74,11 @@ if (!process.env.DISCORD_CLIENT_SECRET) {
 
 if (!process.env.JWT_SECRET) {
   console.log("Warning: JWT_SECRET is using the development fallback value.");
+}
+
+function getRedirectUri(req) {
+  if (REDIRECT_URI) return REDIRECT_URI;
+  return `${req.protocol}://${req.get("host")}/callback`;
 }
 
 // =====================
@@ -139,11 +145,12 @@ async function getAccounts() {
 // LOGIN ROUTE
 // =====================
 app.get("/login", (req, res) => {
+  const redirectUri = getRedirectUri(req);
   const url =
     `https://discord.com/oauth2/authorize` +
     `?client_id=${CLIENT_ID}` +
     `&response_type=code` +
-    `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
     `&scope=identify%20email`;
 
   res.redirect(url);
@@ -154,6 +161,7 @@ app.get("/login", (req, res) => {
 // =====================
 app.get("/callback", async (req, res) => {
   const code = req.query.code;
+  const redirectUri = getRedirectUri(req);
 
   if (!code) return res.send("No code provided");
 
@@ -166,7 +174,7 @@ app.get("/callback", async (req, res) => {
         client_secret: CLIENT_SECRET,
         grant_type: "authorization_code",
         code,
-        redirect_uri: REDIRECT_URI,
+        redirect_uri: redirectUri,
       }),
       {
         headers: {
