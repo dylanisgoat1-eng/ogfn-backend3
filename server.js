@@ -59,21 +59,20 @@ app.get("/health", (req, res) => {
 // =====================
 // CONFIG
 // =====================
-const CLIENT_ID = process.env.DISCORD_CLIENT_ID || "1505369355331047455";
-const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "CYlNATa1Obtc0_j5J1yiSuduzs9iLVbb";
-
+const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI;
-const JWT_SECRET = process.env.JWT_SECRET || "qwertyuiopasdfghjklzxcvbnm1234567890";
+const JWT_SECRET = process.env.JWT_SECRET;
 
 const DB_FILE = "./accounts.json";
 const ACCOUNTS_COLLECTION = "accounts";
 
-if (!process.env.DISCORD_CLIENT_SECRET) {
-  console.log("Warning: DISCORD_CLIENT_SECRET is using the development fallback value.");
-}
+const REQUIRED_ENV = ["DISCORD_CLIENT_ID", "DISCORD_CLIENT_SECRET", "JWT_SECRET"];
+const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
 
-if (!process.env.JWT_SECRET) {
-  console.log("Warning: JWT_SECRET is using the development fallback value.");
+if (missingEnv.length > 0) {
+  console.error("Missing required environment variables: " + missingEnv.join(", "));
+  process.exit(1);
 }
 
 function getRedirectUri(req) {
