@@ -42,11 +42,7 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  res.json({
-    ok: true,
-    name: "OGFN backend",
-    endpoints: ["/login", "/callback", "/verify", "/accounts", "/health"],
-  });
+  res.redirect("/login");
 });
 
 app.get("/health", (req, res) => {
