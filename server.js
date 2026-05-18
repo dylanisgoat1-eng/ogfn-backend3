@@ -218,8 +218,14 @@ app.get("/callback", async (req, res) => {
     `);
 
   } catch (err) {
-    console.log(err.response?.data || err.message);
-    res.send("Login failed");
+    const details = err.response?.data || { error: err.message };
+    console.log("Discord login failed:", details);
+    res.status(500).send(`
+      <h2>Login failed</h2>
+      <p>Discord rejected the authentication request.</p>
+      <pre>${JSON.stringify(details, null, 2)}</pre>
+      <p>Check your Render environment variables and Discord OAuth2 redirect URL.</p>
+    `);
   }
 });
 
