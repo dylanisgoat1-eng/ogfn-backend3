@@ -3,13 +3,13 @@ const axios = require("axios");
 const jwt = require("jsonwebtoken");
 const cors = require("cors");
 const fs = require("fs");
-const { MongoClient } = require("mongodb");
 
 // =====================
 // FIREBASE ADMIN
 // =====================
 const admin = require("firebase-admin");
 let firebaseEnabled = false;
+let firestore = null;
 
 try {
   let serviceAccount;
@@ -27,6 +27,7 @@ try {
     admin.initializeApp({
       credential: admin.credential.cert(serviceAccount),
     });
+    firestore = admin.firestore();
     firebaseEnabled = true;
   } else {
     console.log("Firebase disabled: FIREBASE_SERVICE_ACCOUNT is not set.");
@@ -40,7 +41,18 @@ app.use(cors());
 app.use(express.json());
 
 app.get("/", (req, res) => {
-  res.redirect("/login");
+  res.json({
+    ok: true,
+    name: "OGFN backend",
+    endpoints: ["/login", "/callback", "/verify", "/accounts", "/health"],
+  });
+});
+
+app.get("/health", (req, res) => {
+  res.json({
+    ok: true,
+    firebase: firebaseEnabled,
+  });
 });
 
 // =====================
@@ -49,27 +61,18 @@ app.get("/", (req, res) => {
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID || "1505369355331047455";
 const CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET || "CYlNATa1Obtc0_j5J1yiSuduzs9iLVbb";
 
-const REDIRECT_URI = process.env.REDIRECT_URI || "https://ogfn-backend3-1.onrender.com/callback";
+const REDIRECT_URI = process.env.REDIRECT_URI || "http://localhost:3000/callback";
 const JWT_SECRET = process.env.JWT_SECRET || "qwertyuiopasdfghjklzxcvbnm1234567890";
 
 const DB_FILE = "./accounts.json";
-const MONGODB_URI = process.env.MONGODB_URI;
-const MONGODB_DB = process.env.MONGODB_DB || "ogfn_launcher";
-let mongoDb = null;
+const ACCOUNTS_COLLECTION = "accounts";
 
-if (MONGODB_URI) {
-  const mongoClient = new MongoClient(MONGODB_URI);
-  mongoClient
-    .connect()
-    .then(() => {
-      mongoDb = mongoClient.db(MONGODB_DB);
-      console.log("MongoDB connected: " + MONGODB_DB);
-    })
-    .catch((err) => {
-      console.log("MongoDB error:", err.message);
-    });
-} else {
-  console.log("MongoDB disabled: MONGODB_URI is not set.");
+if (!process.env.DISCORD_CLIENT_SECRET) {
+  console.log("Warning: DISCORD_CLIENT_SECRET is using the development fallback value.");
+}
+
+if (!process.env.JWT_SECRET) {
+  console.log("Warning: JWT_SECRET is using the development fallback value.");
 }
 
 // =====================
@@ -93,28 +96,40 @@ function saveDB(db) {
   }
 }
 
+function accountPayload(user, launcherToken) {
+  return {
+    id: user.id,
+    username: user.username,
+    avatar: user.avatar || null,
+    token: launcherToken,
+    lastLogin: Date.now(),
+  };
+}
+
 async function saveAccount(account) {
+  if (firebaseEnabled && firestore) {
+    await firestore
+      .collection(ACCOUNTS_COLLECTION)
+      .doc(account.id)
+      .set(account, { merge: true });
+    return;
+  }
+
   const db = loadDB();
   db[account.id] = account;
   saveDB(db);
-
-  if (mongoDb) {
-    await mongoDb.collection("accounts").updateOne(
-      { id: account.id },
-      { $set: account },
-      { upsert: true }
-    );
-  }
 }
 
 async function getAccounts() {
-  if (mongoDb) {
-    const accounts = await mongoDb.collection("accounts").find({}).toArray();
-    return accounts.reduce((result, account) => {
-      const { _id, ...publicAccount } = account;
-      result[publicAccount.id] = publicAccount;
-      return result;
-    }, {});
+  if (firebaseEnabled && firestore) {
+    const snapshot = await firestore.collection(ACCOUNTS_COLLECTION).get();
+    const accounts = {};
+
+    snapshot.forEach((doc) => {
+      accounts[doc.id] = doc.data();
+    });
+
+    return accounts;
   }
 
   return loadDB();
@@ -182,29 +197,7 @@ app.get("/callback", async (req, res) => {
       { expiresIn: "30d" }
     );
 
-    const account = {
-      id: user.id,
-      username: user.username,
-      avatar: user.avatar,
-      token: launcherToken,
-      lastLogin: Date.now(),
-    };
-
-    await saveAccount(account);
-
-    // save Firebase (safe try)
-    try {
-      if (!firebaseEnabled) throw new Error("Firebase is not configured");
-      await admin.firestore().collection("accounts").doc(user.id).set({
-        id: user.id,
-        username: user.username,
-        avatar: user.avatar,
-        token: launcherToken,
-        lastLogin: Date.now(),
-      });
-    } catch (e) {
-      console.log("Firebase error:", e.message);
-    }
+    await saveAccount(accountPayload(user, launcherToken));
 
     // redirect to launcher
     res.send(`
