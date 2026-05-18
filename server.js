@@ -49,6 +49,11 @@ app.get("/health", (req, res) => {
   res.json({
     ok: true,
     firebase: firebaseEnabled,
+    discordClientIdSet: Boolean(CLIENT_ID),
+    discordClientIdLast4: CLIENT_ID ? CLIENT_ID.slice(-4) : null,
+    discordClientSecretSet: Boolean(CLIENT_SECRET),
+    jwtSecretSet: Boolean(JWT_SECRET),
+    redirectUri: REDIRECT_URI || `${req.protocol}://${req.get("host")}/callback`,
   });
 });
 
@@ -68,7 +73,6 @@ const missingEnv = REQUIRED_ENV.filter((key) => !process.env[key]);
 
 if (missingEnv.length > 0) {
   console.error("Missing required environment variables: " + missingEnv.join(", "));
-  process.exit(1);
 }
 
 function getRedirectUri(req) {
@@ -140,6 +144,13 @@ async function getAccounts() {
 // LOGIN ROUTE
 // =====================
 app.get("/login", (req, res) => {
+  if (missingEnv.length > 0) {
+    return res.status(500).json({
+      error: "Missing required environment variables",
+      missing: missingEnv,
+    });
+  }
+
   const redirectUri = getRedirectUri(req);
   const url =
     `https://discord.com/oauth2/authorize` +
@@ -159,6 +170,12 @@ app.get("/callback", async (req, res) => {
   const redirectUri = getRedirectUri(req);
 
   if (!code) return res.send("No code provided");
+  if (missingEnv.length > 0) {
+    return res.status(500).json({
+      error: "Missing required environment variables",
+      missing: missingEnv,
+    });
+  }
 
   try {
     // get discord token
